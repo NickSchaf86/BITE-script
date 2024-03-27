@@ -10,38 +10,32 @@ var PWD = new BiteAgent({
 				cell.reloadTrees(); // make sure we have all the trees that are actually there (Werner Rammer 23.09.23)
                 var Ntrees = cell.trees.sum('1', 'species=pisy and dbh>=15'); // 'species=pisy and dbh>15'
 				var yrl = cell.value('yearsLiving'); 
-				var agent = cell.value('agentBiomass');
-                if ( Ntrees < 1 & yrl>2){        
-                return true;
-//				} else if (agent == 0 & yrl > 0) {        
-//				return true;
+                if ( Ntrees < 1 & yrl>2){        //When the cell was colonized more than a year ago but there are no more host trees (here: pine trees of 15 cm), the cell dies
+                return true;                     //When a cell dies, it can become available again for colonization in later years
                 } else {
                 return false;
                 }
                 }  
-        }),          //!!! 1) spreadDelay conditional? Rather spreadFilter!! 2) cut off kernel and background probability 3) onBeforeSpread if Globals.year=1 OR 20 OR 50??  4) Check Impact script
-                     //SpreadDelay as a function of biomass, that there is no spread until the agentBiomass reaches a certain threshold. or, once they reach the carerying capacity
+        }),          
 					 
     dispersal: new BiteDispersal({      
-	kernel: 'exp(-x*x/(2*3.14159*300*300))', //'exp(-x*x/(2*3.14159*500*500))' = negative students t with max 8000,/ 'exp(-0.1478*sqrt(x))'= ALB dispersal kernel
-	//if(x<50, 0, xxxxx) one way to create a donut-shaped kernel and drive the agent out of the initial cell.
-	//min(xxxxxx, 0.1) Apparently another way
-	debugKernel: 'temp/kerneltest_1500m.asc', //raster file for debugging the kernel function
-    maxDistance: 8000,  // take maximum landscape size in regard and scale    
-    onBeforeSpread: function(bit) {  }  , //function to introduce the agent on first simulation year in a random cell (see below that coordinates are given for landscape centerpoint
+	kernel: 'exp(-x*x/(2*3.14159*300*300))', //binomial distribution with x starting at 0, acting as -2Dt function with a Median distance of 300 meters. See examples on BITE wiki for more ideas on possibilities
+	//if(x<50, 0, xxxxx) one way to create a donut-shaped kernel and drive the agent out of the initial cell. Not properly tested.
+	debugKernel: 'temp/kerneltest_8000m.asc', //raster file for debugging the kernel function, automatically created
+    	maxDistance: 8000,  // fixed value, maximum dispersal distance of the kernel, in meters
+    	onBeforeSpread: function(bit) {  }  , //function to introduce the agent on first simulation year in a random cell (see below that coordinates are given for landscape center point
 	onAfterSpread: function(item) {
 				if (Globals.year <2) {
-					initialSpread(1, item.grid); console.log("placed one px");
+					initialSpread(1, item.grid); console.log("placed one px"); //The initialSpread function was added at the bottom of the script
 				}
-				item.grid.save("temp/Test_dgrid8000_800"+Globals.year+".asc");   }   // makes a grid of the dispersal
+				item.grid.save("temp/Test_dgrid8000_800"+Globals.year+".asc");   }   // makes an ASCII file of the grid of the dispersal for every year of the run
 		}), 
     
     colonization: new BiteColonization({ 
-        dispersalFilter: 'rnd(0,0.05) < (dispersalGrid)', // Heterobasidion example: 'rnd(0,1) < (dispersalGrid)+0.005', 
+        dispersalFilter: 'rnd(0,0.05) < (dispersalGrid)', // This value can be between 0 and 1
         treeFilter: 'species=pisy and dbh>=15', // the cell must have Scots pine (Pinus sylvestris) as host with dbh => 15 cm
-//		initialAgentBiomass: 2,	// two beetles are needed to colonize a cell. Higher biomass if more colonized cells are adjacent? -> function  cell.value = '
-		initialAgentBiomass: function(cell) { return cell.value('dispersalGrid') * 50; }, //related to the spread agentBiomass
-		onCalculate: function(cell) { Bite.log(" COLONIZATION!! "); },    
+	initialAgentBiomass: function(cell) { return cell.value('dispersalGrid') * 50; }, //related to the spread agentBiomass. Can also be a fixed number
+	onCalculate: function(cell) { Bite.log(" COLONIZATION!! "); },   //testing how many times there is colonization 
 		
 		}),
 	// higher initialBiomass can be achieved by making it conditional on the value of dispersalGrid. This dispersalGrid must be the value of the one cell.	
@@ -54,11 +48,10 @@ var PWD = new BiteAgent({
 			
 		},
 
-       growthFunction: 'K / (1 + ( (K - M) / M)*exp(-r*t))', // logistic growth function, where K=hostbiomass / consumption; M=agentBiomass; r=relative growth rate coefficient; t=time
+       growthFunction: 'K / (1 + ( (K - M) / M)*exp(-r*t))', // standard logistic growth function, where K=hostbiomass / consumption; M=agentBiomass; r=relative growth rate coefficient; t=time
        
 	   growthRateFunction: function (cell) {
-     		var grate = Math.log(9); //every infected tree produces 9 infected beetles (cc delaFuente 2018), growth rate is log(9)
-		//Bite.log("GROWTH RATE FUNCTION: "+treeskilled  + " rate: " + grate); 
+     		var grate = Math.log(9); //every infected tree produces 7-12 infected beetles (cc delaFuente 2018), growth rate is log(9)
 		return grate;
 		},
 		mortality: 0,
@@ -67,9 +60,9 @@ var PWD = new BiteAgent({
         }),   
 	
     impact: new BiteImpact({ 
-		impactFilter:'hostBiomass>0',
-		impact: [ // filter usceptive trees, define the exact target, set the number of trees relative to number of infected beetles
-		{treeFilter: 'species=pisy and dbh>15', target: 'tree', maxTrees: 'agentBiomass/2'
+		impactFilter:'hostBiomass>0', /only impact when there are host trees in the cell
+		impact: [ // filter susceptive trees, define the exact target, set the number of trees relative to number of infected beetles
+		{treeFilter: 'species=pisy and dbh>15', target: 'tree', maxTrees: 'agentBiomass/2' //the maximum number of killed trees is the number of infected beetles divided by N
 		}]
       }),
 
@@ -82,34 +75,20 @@ var PWD = new BiteAgent({
         
    }),
         
-
-   // onSetup: function(agent) {     //loads the standIds to track in which stand the BITE cell is 
-   //     agent.addVariable('tfirst');
-   //     var grid = Factory.newGrid();
-   //     grid.load('gis/bite.stands.asc');
-   //     agent.addVariable(grid, 'standId');
-   //    }, // part of the Item
         
-   onYearEnd: function(agent) { 
-   //   agent.updateVariable('tfirst', function(cell) {
-   //         if (cell.value('tfirst')>0) return cell.value('tfirst')+1; // increment
-   //         if (cell.cumYearsLiving==1) return 1; // start
-   //         return 0; 
-   //     });
+   onYearEnd: function(agent) {    //creation of extra ASCII files, the grid 'index' can be used to track the spread of colonized cells in the landscape through time
         agent.saveGrid('yearsLiving', 'temp/pwd1_yliv.asc');
         agent.saveGrid('cumYearsLiving', 'temp/pwd1_cyliv.asc');
-   //     agent.saveGrid('tfirst', 'temp/alb_tfirst.asc');
-		agent.saveGrid('index', 'temp/pwd_idx.asc');
+	agent.saveGrid('index', 'temp/pwd_idx.asc');
         agent.saveGrid('active', 'temp/pwd1_active.asc'); }
 
 });
 
-function initialSpread(n, gr) {
+function initialSpread(n, gr) {     //This is an adaptation of the function 'randomspread' as used in examples on the BITE wiki. 
   for (var i=0;i<n;++i) {
-      var x = 148.5 //one value of a pixel -> colFromX(map, -712250) -> [1] 159 (Kostelec map) for the highest concentration of big pine trees
+      var x = 148.5 //one value of a pixel -> colFromX(map, -712250) -> [1] 149 (Kostelec map) for the highest concentration of big pine trees
     var y = 43.5 //one value of a pixel -> rowFromY(map, -1054550) -> [1] 44 (Kostelec map)
     gr.setValue(x,y,1);
    }
 }
-
 
